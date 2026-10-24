@@ -1,0 +1,136 @@
+{
+  "schema_version": "1.0",
+  "verification_timestamp_utc": "2026-10-24T15:47:55.955059+00:00",
+  "status": "verified",
+  "model_loaded": true,
+  "human_approved": false,
+  "model_id": "Dpngtm/wav2vec2-emotion-recognition",
+  "requested_pinned_revision": "033a5751a5bbe5b0b67c2c71e6102c38de35a346",
+  "current_available_revision": "033a5751a5bbe5b0b67c2c71e6102c38de35a346",
+  "current_revision_lookup_error": null,
+  "cache": {
+    "cache_repo_found": true,
+    "snapshot_revisions": [
+      "033a5751a5bbe5b0b67c2c71e6102c38de35a346"
+    ],
+    "configured_revision_present": true
+  },
+  "environment": {
+    "python": "3.12.10",
+    "package_versions": {
+      "python": "3.12.10",
+      "numpy": "2.5.4",
+      "soundfile": "0.14.0",
+      "soxr": "1.1.0",
+      "torch": "2.14.1+cpu",
+      "transformers": "5.20.2",
+      "huggingface-hub": "2.3.0",
+      "safetensors": "0.8.0",
+      "streamlit": "1.66.1",
+      "webrtcvad-wheels": "2.0.14.post1"
+    }
+  },
+  "resolved_revision": "033a5751a5bbe5b0b67c2c71e6102c38de35a346",
+  "loaded_revision": "033a5751a5bbe5b0b67c2c71e6102c38de35a346",
+  "revision_confirmation": {
+    "snapshot_directory_name": "033a5751a5bbe5b0b67c2c71e6102c38de35a346",
+    "config_commit_hash": null,
+    "model_commit_hash": null,
+    "feature_extractor_commit_hash": null,
+    "snapshot_directory_matches_requested_revision": true,
+    "online_current_revision_matches_pin": true
+  },
+  "config": {
+    "id2label": {
+      "0": "angry",
+      "1": "calm",
+      "2": "disgust",
+      "3": "fearful",
+      "4": "happy",
+      "5": "sad",
+      "6": "surprised"
+    },
+    "label2id": {
+      "angry": 0,
+      "calm": 1,
+      "disgust": 2,
+      "fearful": 3,
+      "happy": 4,
+      "sad": 5,
+      "surprised": 6
+    },
+    "num_labels": 7,
+    "model_type": "wav2vec2",
+    "architectures": [
+      "Wav2Vec2ForSequenceClassification"
+    ],
+    "hidden_size": 768
+  },
+  "classifier_head": {
+    "linear_modules": [
+      {
+        "module_name": "projector",
+        "type": "Linear",
+        "in_features": 768,
+        "out_features": 256
+      },
+      {
+        "module_name": "classifier",
+        "type": "Linear",
+        "in_features": 256,
+        "out_features": 7
+      }
+    ],
+    "observed_output_dimension": 7
+  },
+  "feature_extractor": {
+    "class": "Wav2Vec2FeatureExtractor",
+    "sampling_rate_hz": 16000,
+    "settings": {
+      "feature_size": 1,
+      "sampling_rate": 16000,
+      "padding_value": 0.0,
+      "padding_side": "right",
+      "return_attention_mask": false,
+      "feature_extractor_type": "Wav2Vec2FeatureExtractor",
+      "do_normalize": true
+    }
+  },
+  "synthetic_forward_pass": {
+    "status": "passed",
+    "input_description": "one second of synthetic digital-zero audio at 16 kHz",
+    "logits_shape": [
+      1,
+      7
+    ],
+    "logits_finite": true,
+    "all_class_scores_validated": true,
+    "scores_by_label": {
+      "angry": 0.00011637695570243523,
+      "calm": 0.017108900472521782,
+      "disgust": 0.0029909873846918344,
+      "fearful": 0.018428953364491463,
+      "happy": 0.00022202768013812602,
+      "sad": 0.9603046774864197,
+      "surprised": 0.0008280881447717547
+    },
+    "score_sum": 1.000000011488737
+  },
+  "artifacts": {
+    "config_json_sha256": "219fe4ea30d255c4fa0de7070b3f0c6f1277f741a492594f589d046951e9635f",
+    "preprocessor_config_json_sha256": "617bd0950f8cc9ac4062e8c73a7be60305ca5790a243df55fa6f44fb671b55b1",
+    "model_safetensors_sha256": "19c9ffbfd4a6e75f15fa789e4b0c4c028af0b3ecb8bab4d6105321f77dc6a0d4",
+    "model_safetensors_bytes": 378307508
+  },
+  "safetensors_explicitly_requested": true,
+  "pickle_training_artifacts_loaded": false,
+  "raw_labels": [
+    "angry",
+    "calm",
+    "disgust",
+    "fearful",
+    "happy",
+    "sad",
+    "surprised"
+  ]
+}

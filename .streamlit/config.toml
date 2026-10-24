@@ -1,0 +1,22 @@
+[server]
+address = "127.0.0.1"
+headless = true
+maxUploadSize = 50
+
+[browser]
+gatherUsageStats = false
+
+[theme]
+base = "light"
+primaryColor = "#40566f"
+backgroundColor = "#ffffff"
+secondaryBackgroundColor = "#f3f5f7"
+textColor = "#253142"
+borderColor = "#d8dee7"
+showWidgetBorder = true
+showSidebarBorder = false
+font = "sans serif"
+headingFont = "sans serif"
+codeFont = "monospace"
+paddingTop = "2rem"
+paddingBottom = "2rem"
