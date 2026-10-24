@@ -17,9 +17,12 @@ __pycache__/
 .env.*
 .pytest_cache/
 .cache/
+.tmp/
+*.log
 models/
 model_cache/
 huggingface_cache/
 voxtrace_analysis_receipt*.json
 voxtrace-prebuild-checkpoint-*.zip
+voxtrace-verified-checkpoint-*.zip
 .DS_Store

@@ -4,7 +4,7 @@ VoxTrace is an experimental, local investigator-support prototype for listening 
 
 ## Scope and limits
 
-The classifier emits a closed set of labels. The pinned revision currently verifies these raw classes: `angry`, `calm`, `disgust`, `fearful`, `happy`, `sad`, and `surprised`. The app does not rename labels. In particular, `calm` is not `neutral`.
+The classifier emits a closed set of labels. The pinned revision currently verifies these raw classes: `angry`, `calm`, `disgust`, `fearful`, `happy`, `sad`, and `surprised`. VoxTrace directly displays the checkpoint's `angry` and `fearful` scores; it does not independently detect `nervousness` or `distress`, and does not synthesize either label. The app does not rename labels. In particular, `calm` is not `neutral`.
 
 Nervousness and distress are not independent classes in this checkpoint. Scores are uncalibrated classifier outputs, not probabilities that an emotion truly exists, that the caller experiences it, or that the model is correct. The classifier also emits scores for noise, music, silence-like inputs, and unrelated audio. A large score on a tone or noise does not establish an emotion.
 
