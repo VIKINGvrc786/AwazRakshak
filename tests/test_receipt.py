@@ -7,9 +7,10 @@ import pytest
 from receipt import RECEIPT_VERSION, build_receipt, sha256_bytes, strict_json_dumps, verify_sha256
 
 
-def sample_receipt(input_bytes=b"wav bytes"):
+def sample_receipt(input_bytes=b"wav bytes", input_filename="review.wav"):
     return build_receipt(
         input_bytes=input_bytes,
+        input_filename=input_filename,
         original_wav_metadata={"format": "WAV", "sample_rate_hz": 16_000, "channels": 1, "frames": 48_000, "duration_seconds": 3.0},
         audio_transform={"target_sample_rate_hz": 16_000, "resampling_applied": False},
         model={"model_id": "Dpngtm/wav2vec2-emotion-recognition", "requested_revision": "a" * 40,
@@ -28,13 +29,19 @@ def test_receipt_round_trip_is_strict_and_audio_free():
     receipt = sample_receipt()
     encoded = strict_json_dumps(receipt)
     decoded = json.loads(encoded)
-    assert decoded["schema_version"] == RECEIPT_VERSION == "3.0"
+    assert decoded["schema_version"] == RECEIPT_VERSION == "3.1"
     assert decoded["input"]["sha256"] == sha256_bytes(b"wav bytes")
+    assert decoded["input"]["filename"] == "review.wav"
     assert decoded["model"]["requested_revision"] == "a" * 40
     assert decoded["model"]["raw_id2label"]["1"] == "calm"
     assert "audio_bytes" not in decoded["input"]
     assert "samples" not in encoded
     assert "wav bytes" not in encoded
+
+
+def test_filename_is_optional_for_non_upload_receipt_builders():
+    receipt = sample_receipt(input_filename=None)
+    assert "filename" not in receipt["input"]
 
 
 def test_fingerprint_matches_original_bytes_and_detects_changed_bytes():

@@ -7,7 +7,13 @@ import numpy as np
 import pytest
 import soundfile as sf
 
-from config import EXPECTED_ID2LABEL, MODEL_REVISION, MODEL_SAMPLE_RATE
+from config import (
+    EXPECTED_ID2LABEL,
+    MODEL_REVISION,
+    MODEL_SAMPLE_RATE,
+    TONAL_DOMINANT_POWER_FRACTION,
+    TONAL_SPECTRAL_FLATNESS_MAX,
+)
 from engine import (
     AudioData,
     AudioValidationError,
@@ -194,6 +200,24 @@ def test_non_speech_tone_and_noise_are_flagged_but_still_classified(kind):
     assert windows[0]["quality_flags"]
     if kind == "tone":
         assert "TONAL_SUSPECTED" in windows[0]["quality_flags"]
+
+
+def test_harmonic_voice_like_signal_can_trigger_tonal_flag_and_remains_classified():
+    t = np.arange(3 * MODEL_SAMPLE_RATE, dtype=np.float64) / MODEL_SAMPLE_RATE
+    samples = sum(
+        (0.08 / harmonic) * np.sin(2 * np.pi * 120 * harmonic * t)
+        for harmonic in range(1, 9)
+    ).astype(np.float32)
+
+    windows, _, _ = analyze_audio(make_audio(samples), lambda _: GOOD_SCORES)
+
+    assert windows[0]["status"] == "classified"
+    assert "TONAL_SUSPECTED" in windows[0]["quality_flags"]
+    metrics = windows[0]["metrics"]
+    assert (
+        metrics["spectral_flatness"] <= TONAL_SPECTRAL_FLATNESS_MAX
+        or metrics["dominant_peak_fraction"] >= TONAL_DOMINANT_POWER_FRACTION
+    )
 
 
 def test_low_energy_and_clipping_flags_do_not_hard_skip_usable_audio():

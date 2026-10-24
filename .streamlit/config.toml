@@ -7,16 +7,17 @@ maxUploadSize = 50
 gatherUsageStats = false
 
 [theme]
-base = "light"
-primaryColor = "#40566f"
-backgroundColor = "#ffffff"
-secondaryBackgroundColor = "#f3f5f7"
-textColor = "#253142"
-borderColor = "#d8dee7"
+base = "dark"
+primaryColor = "#b53a32"
+backgroundColor = "#101214"
+secondaryBackgroundColor = "#191c20"
+textColor = "#e8eaed"
+borderColor = "#34383f"
+codeBackgroundColor = "#1d2024"
 showWidgetBorder = true
 showSidebarBorder = false
 font = "sans serif"
 headingFont = "sans serif"
 codeFont = "monospace"
-paddingTop = "2rem"
-paddingBottom = "2rem"
+paddingTop = "1.5rem"
+paddingBottom = "1.5rem"

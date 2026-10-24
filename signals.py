@@ -193,3 +193,82 @@ def rank_candidates(
         )
     )
     return candidates
+
+
+def review_windows(
+    windows: Sequence[Mapping],
+    *,
+    filter_mode: str,
+    order_by: str,
+    selected_label: str,
+    verified_labels: Sequence[str],
+) -> list[dict]:
+    """Filter and order review rows without changing their source results.
+
+    Flagged includes any window carrying a quality flag. Unflagged is limited
+    to classified windows with no flags, since skipped or failed windows do
+    not have a valid unflagged prediction.
+    """
+    if filter_mode == "all":
+        filtered = list(windows)
+    elif filter_mode in {"flagged", "flagged_classified"}:
+        filtered = [
+            window
+            for window in windows
+            if window.get("status") == "classified" and window.get("quality_flags")
+        ]
+    elif filter_mode == "unflagged":
+        filtered = [
+            window
+            for window in windows
+            if window.get("status") == "classified"
+            and not window.get("quality_flags")
+        ]
+    elif filter_mode == "skipped_failed":
+        filtered = [
+            window
+            for window in windows
+            if window.get("status") in {"skipped", "failed"}
+        ]
+    else:
+        raise ValueError(f"Unknown review filter: {filter_mode}")
+
+    ranked = rank_candidates(filtered, selected_label, verified_labels)
+    ranked_by_index = {int(window["index"]): window for window in ranked}
+
+    if order_by == "timestamp":
+        ordered = sorted(
+            filtered,
+            key=lambda window: (
+                float(window["start_seconds"]),
+                int(window["index"]),
+            ),
+        )
+    elif order_by == "raw_score":
+        unscored = [
+            window
+            for window in filtered
+            if window.get("status") != "classified"
+        ]
+        ordered = ranked + sorted(
+            unscored,
+            key=lambda window: (
+                float(window["start_seconds"]),
+                int(window["index"]),
+            ),
+        )
+    else:
+        raise ValueError(f"Unknown review order: {order_by}")
+
+    return [
+        ranked_by_index.get(int(window["index"]), dict(window))
+        for window in ordered
+    ]
+
+
+def select_review_window(windows: Sequence[Mapping], index: int) -> dict:
+    """Return a copy of the uniquely indexed window selected in the UI."""
+    matches = [window for window in windows if int(window["index"]) == int(index)]
+    if len(matches) != 1:
+        raise ValueError(f"Expected one review window for index {index}")
+    return dict(matches[0])

@@ -7,7 +7,7 @@ import json
 import re
 from typing import Any, Mapping, Sequence
 
-RECEIPT_VERSION = "3.0"
+RECEIPT_VERSION = "3.1"
 
 LIMITATIONS = [
     "Experimental investigator-support prototype; human listening and review are required.",
@@ -35,6 +35,7 @@ def verify_sha256(data: bytes, expected: str) -> bool:
 def build_receipt(
     *,
     input_bytes: bytes,
+    input_filename: str | None = None,
     original_wav_metadata: Mapping[str, Any],
     audio_transform: Mapping[str, Any],
     model: Mapping[str, Any],
@@ -44,13 +45,14 @@ def build_receipt(
     dependency_versions: Mapping[str, Any],
     provisional_thresholds: Mapping[str, Any],
 ) -> dict[str, Any]:
-    """Build version 3.0 receipt without retaining uploaded audio or arrays."""
+    """Build version 3.1 receipt without retaining uploaded audio or arrays."""
     return {
         "schema_version": RECEIPT_VERSION,
         "application": "VoxTrace",
         "input": {
             "sha256": sha256_bytes(input_bytes),
             "file_size_bytes": len(input_bytes),
+            **({"filename": input_filename} if input_filename is not None else {}),
             "original_wav_metadata": dict(original_wav_metadata),
             "fingerprint_scope": "SHA-256 of the original uploaded bytes",
             "fingerprint_limitation": (

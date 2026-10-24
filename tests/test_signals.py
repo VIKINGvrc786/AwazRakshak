@@ -3,7 +3,15 @@ from __future__ import annotations
 import pytest
 
 from config import EXPECTED_ID2LABEL
-from signals import class_statistics, coverage_accounting, interval_union_seconds, merge_intervals, rank_candidates
+from signals import (
+    class_statistics,
+    coverage_accounting,
+    interval_union_seconds,
+    merge_intervals,
+    rank_candidates,
+    review_windows,
+    select_review_window,
+)
 
 
 LABELS = tuple(EXPECTED_ID2LABEL[index] for index in sorted(EXPECTED_ID2LABEL))
@@ -141,3 +149,76 @@ def test_candidate_ranking_is_stable_and_flagged_windows_remain_inspectable():
 def test_combined_ranking_selector_requires_exact_raw_labels():
     with pytest.raises(ValueError):
         rank_candidates([], "max(angry, fearful)", ("angry", "fear"))
+
+
+def test_review_filters_keep_failed_flags_visible_and_define_unflagged_precisely():
+    windows = [
+        result(0, 0.0, 3.0, flags=[]),
+        result(1, 1.5, 4.5, flags=["TONAL_SUSPECTED"]),
+        result(2, 3.0, 6.0, status="failed", flags=["MODEL_ERROR"]),
+        result(3, 4.5, 7.5, status="skipped", flags=[]),
+    ]
+
+    all_rows = review_windows(
+        windows,
+        filter_mode="all",
+        order_by="timestamp",
+        selected_label="angry",
+        verified_labels=LABELS,
+    )
+    flagged_rows = review_windows(
+        windows,
+        filter_mode="flagged_classified",
+        order_by="timestamp",
+        selected_label="angry",
+        verified_labels=LABELS,
+    )
+    skipped_failed_rows = review_windows(
+        windows,
+        filter_mode="skipped_failed",
+        order_by="timestamp",
+        selected_label="angry",
+        verified_labels=LABELS,
+    )
+    unflagged_rows = review_windows(
+        windows,
+        filter_mode="unflagged",
+        order_by="timestamp",
+        selected_label="angry",
+        verified_labels=LABELS,
+    )
+
+    assert [row["index"] for row in all_rows] == [0, 1, 2, 3]
+    assert [row["index"] for row in flagged_rows] == [1]
+    assert [row["index"] for row in skipped_failed_rows] == [2, 3]
+    assert [row["index"] for row in unflagged_rows] == [0]
+    assert all_rows[0]["selected_class"] == "angry"
+
+
+def test_review_score_order_is_stable_and_places_unscored_outcomes_last():
+    windows = [
+        result(2, 3.0, 6.0),
+        result(1, 1.5, 4.5),
+        result(0, 0.0, 3.0, status="failed"),
+    ]
+    windows[0]["scores_by_label"]["angry"] = 0.8
+    windows[1]["scores_by_label"]["angry"] = 0.8
+    ordered = review_windows(
+        windows,
+        filter_mode="all",
+        order_by="raw_score",
+        selected_label="angry",
+        verified_labels=LABELS,
+    )
+    assert [row["index"] for row in ordered] == [1, 2, 0]
+    assert ordered[-1]["status"] == "failed"
+
+
+def test_select_review_window_returns_the_chosen_row_and_rejects_unknown_index():
+    windows = [result(0, 0.0, 3.0), result(1, 1.5, 4.5)]
+    selected = select_review_window(windows, 1)
+    assert selected["index"] == 1
+    assert selected["start_seconds"] == 1.5
+    assert selected is not windows[1]
+    with pytest.raises(ValueError):
+        select_review_window(windows, 4)
