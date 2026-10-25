@@ -1,17 +1,17 @@
-"""Local WAV processing and pinned Wav2Vec2 inference."""
+"""Pinned local model loading, audio quality screening, and score validation."""
 
 from __future__ import annotations
 
-import importlib.metadata
-import io
+import hashlib
+import json
 import math
+import os
 import re
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any, Callable, Mapping, Sequence
 
 import numpy as np
-import soundfile as sf
-import soxr
 
 from config import (
     CLIPPING_PEAK_THRESHOLD,
@@ -20,9 +20,8 @@ from config import (
     EXPECTED_LABEL2ID,
     LOW_RMS_FLAG_THRESHOLD,
     LOW_VAD_ACTIVITY_RATIO,
-    MAX_UPLOAD_MB,
-    MIN_ANALYZABLE_WINDOW_SECONDS,
     MODEL_ID,
+    MODEL_LOCAL_PATH_ENV,
     MODEL_OUTPUT_DIMENSION,
     MODEL_REVISION,
     MODEL_SAMPLE_RATE,
@@ -31,26 +30,11 @@ from config import (
     STATIONARY_NOISE_SPECTRAL_FLATNESS_MIN,
     TONAL_DOMINANT_POWER_FRACTION,
     TONAL_SPECTRAL_FLATNESS_MAX,
-    WINDOW_SECONDS,
-    WINDOW_STRIDE_SECONDS,
 )
-from signals import class_statistics, coverage_accounting
-
-
-class AudioValidationError(ValueError):
-    """An uploaded WAV cannot be safely decoded or analyzed."""
 
 
 class ModelVerificationError(RuntimeError):
     """The pinned model failed a runtime integrity or compatibility check."""
-
-
-@dataclass(frozen=True)
-class AudioData:
-    samples: np.ndarray
-    sample_rate: int
-    original_wav_metadata: dict[str, Any]
-    transform: dict[str, Any]
 
 
 @dataclass
@@ -160,102 +144,10 @@ def validate_score_vector(
     return [{"label": label, "score": parsed[label]} for label in expected_labels]
 
 
-def load_audio(file_bytes: bytes) -> AudioData:
-    """Decode a WAV from its original bytes, validate it, mono-mix and resample."""
-    if not isinstance(file_bytes, (bytes, bytearray)) or not file_bytes:
-        raise AudioValidationError("The uploaded WAV is empty")
-    if len(file_bytes) > MAX_UPLOAD_MB * 1024 * 1024:
-        raise AudioValidationError(f"WAV exceeds the {MAX_UPLOAD_MB} MB upload limit")
-
-    try:
-        with io.BytesIO(file_bytes) as stream:
-            info = sf.info(stream)
-            stream.seek(0)
-            decoded, source_rate = sf.read(
-                stream,
-                dtype="float32",
-                always_2d=True,
-            )
-    except Exception as exc:
-        raise AudioValidationError(
-            "The upload is not a supported, readable WAV file"
-        ) from exc
-
-    decoded = np.asarray(decoded, dtype=np.float32)
-    if decoded.ndim != 2 or decoded.shape[0] == 0 or decoded.shape[1] == 0:
-        raise AudioValidationError("The WAV contains no usable audio samples")
-    if not np.isfinite(decoded).all():
-        raise AudioValidationError(
-            "The WAV contains non-finite samples; the recording was rejected before resampling"
-        )
-    if source_rate <= 0 or info.channels <= 0:
-        raise AudioValidationError("The WAV has invalid sampling-rate or channel metadata")
-
-    original_duration = float(info.frames / source_rate)
-    if original_duration < MIN_ANALYZABLE_WINDOW_SECONDS:
-        raise AudioValidationError(
-            f"WAV is too short to analyze safely (minimum {MIN_ANALYZABLE_WINDOW_SECONDS:.1f} seconds)"
-        )
-
-    mono = decoded.mean(axis=1, dtype=np.float32) if info.channels > 1 else decoded[:, 0]
-    reduced_channels = info.channels > 1
-    if source_rate == MODEL_SAMPLE_RATE:
-        converted = mono.astype(np.float32, copy=False)
-        resampled = False
-    else:
-        converted = soxr.resample(
-            mono,
-            source_rate,
-            MODEL_SAMPLE_RATE,
-            quality="HQ",
-        ).astype(np.float32, copy=False)
-        resampled = True
-    if converted.size == 0 or not np.isfinite(converted).all():
-        raise AudioValidationError("Audio conversion produced no finite usable samples")
-
-    metadata = {
-        "format": info.format,
-        "subtype": info.subtype,
-        "sample_rate_hz": int(source_rate),
-        "channels": int(info.channels),
-        "frames": int(info.frames),
-        "duration_seconds": original_duration,
-    }
-    transform = {
-        "channel_reduction": "arithmetic mean to mono" if reduced_channels else "none; input already mono",
-        "resampling_applied": resampled,
-        "source_sample_rate_hz": int(source_rate),
-        "target_sample_rate_hz": MODEL_SAMPLE_RATE,
-        "resampler": "soxr HQ" if resampled else None,
-        "non_finite_sample_behavior": "reject the complete WAV before resampling",
-    }
-    return AudioData(
-        samples=converted,
-        sample_rate=MODEL_SAMPLE_RATE,
-        original_wav_metadata=metadata,
-        transform=transform,
-    )
 
 
-def window_bounds(sample_count: int, sample_rate: int) -> list[tuple[int, int]]:
-    """Generate three-second/1.5-second windows and retain the final partial window."""
-    if sample_count <= 0 or sample_rate <= 0:
-        return []
-    duration = sample_count / sample_rate
-    if duration <= WINDOW_SECONDS:
-        starts = [0.0]
-    else:
-        last_start_count = math.ceil(
-            max(0.0, duration - WINDOW_SECONDS) / WINDOW_STRIDE_SECONDS - 1e-12
-        )
-        starts = [index * WINDOW_STRIDE_SECONDS for index in range(last_start_count + 1)]
-    bounds = []
-    for start in starts:
-        start_index = min(sample_count, int(round(start * sample_rate)))
-        end_index = min(sample_count, int(round(min(start + WINDOW_SECONDS, duration) * sample_rate)))
-        if end_index > start_index:
-            bounds.append((start_index, end_index))
-    return bounds
+
+
 
 
 def _acoustic_metrics(segment: np.ndarray) -> dict[str, float]:
@@ -342,9 +234,37 @@ def screen_window(segment: np.ndarray) -> tuple[list[str], dict[str, float | Non
     return sorted(set(flags)), indicators
 
 
-def _verified_snapshot_path(revision: str) -> str:
+def _verified_snapshot_path(
+    revision: str,
+    model_path: str | Path | None = None,
+) -> str:
     if not re.fullmatch(r"[0-9a-f]{40}", revision):
         raise ModelVerificationError("Configured model revision is not a full immutable commit SHA")
+    configured_path = (
+        str(model_path).strip()
+        if model_path is not None
+        else os.environ.get(MODEL_LOCAL_PATH_ENV, "").strip()
+    )
+    if configured_path:
+        root = Path(configured_path).expanduser()
+        repo_folder = f"models--{MODEL_ID.replace('/', '--')}"
+        candidates = (
+            root / "snapshots" / revision,
+            root / repo_folder / "snapshots" / revision,
+            root / "hub" / repo_folder / "snapshots" / revision,
+            root / revision,
+            root,
+        )
+        for candidate in candidates:
+            if candidate.is_dir() and (
+                candidate / "config.json"
+            ).is_file():
+                return _verified_local_model_path(candidate, revision)
+        raise ModelVerificationError(
+            "The selected folder contains no snapshot for the pinned model revision. "
+            "Choose the Hugging Face cache root, the pinned snapshot folder, or a folder "
+            "containing config.json, preprocessor_config.json, and model.safetensors."
+        )
     from huggingface_hub import snapshot_download
 
     patterns = ["config.json", "preprocessor_config.json", "model.safetensors"]
@@ -356,19 +276,93 @@ def _verified_snapshot_path(revision: str) -> str:
             allow_patterns=patterns,
         )
     except Exception as cache_error:
-        try:
-            path = snapshot_download(
-                repo_id=MODEL_ID,
-                revision=revision,
-                allow_patterns=patterns,
-            )
-        except Exception as online_error:
-            raise ModelVerificationError(
-                f"Pinned model revision is neither available online nor complete in the local cache: {online_error}"
-            ) from cache_error
+        raise ModelVerificationError(
+            "Pinned model revision is not complete in the local cache; runtime analysis is offline-only"
+        ) from cache_error
     if path.rstrip("\\/").split("/")[-1].split("\\")[-1].lower() != revision.lower():
         raise ModelVerificationError("Hugging Face returned a cache snapshot for a different revision")
     return path
+
+
+def _verified_local_model_path(path: Path, revision: str) -> str:
+    try:
+        model_path = path.expanduser().resolve(strict=True)
+        manifest_path = Path(__file__).with_name("MODEL_VERIFICATION.json")
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise ModelVerificationError(
+            f"Could not read local model folder or its verification manifest: {exc}"
+        ) from exc
+    if not model_path.is_dir():
+        raise ModelVerificationError("Configured local model path is not a directory")
+    if (
+        manifest.get("status") != "verified"
+        or manifest.get("model_id") != MODEL_ID
+        or manifest.get("requested_pinned_revision") != revision
+        or manifest.get("loaded_revision") != revision
+        or manifest.get("synthetic_forward_pass", {}).get("status") != "passed"
+    ):
+        raise ModelVerificationError(
+            "The local verification manifest does not validate the configured model pin"
+        )
+    try:
+        observed_labels = {
+            int(index): label
+            for index, label in manifest["config"]["id2label"].items()
+        }
+        if (
+            observed_labels != EXPECTED_ID2LABEL
+            or manifest["config"]["num_labels"] != MODEL_OUTPUT_DIMENSION
+        ):
+            raise ModelVerificationError(
+                "The local verification manifest contains an unexpected label map"
+            )
+        expected_hashes = {
+            "config.json": manifest["artifacts"]["config_json_sha256"],
+            "preprocessor_config.json": manifest["artifacts"][
+                "preprocessor_config_json_sha256"
+            ],
+            "model.safetensors": manifest["artifacts"]["model_safetensors_sha256"],
+        }
+    except (KeyError, TypeError, ValueError) as exc:
+        raise ModelVerificationError(
+            "The local verification manifest is missing pinned model metadata"
+        ) from exc
+    for filename, expected_hash in expected_hashes.items():
+        file_path = model_path / filename
+        if not re.fullmatch(r"[0-9a-f]{64}", str(expected_hash)):
+            raise ModelVerificationError(
+                f"The local verification manifest has an invalid hash for {filename}"
+            )
+        if not file_path.is_file():
+            raise ModelVerificationError(
+                f"The local model folder is missing required file {filename}"
+            )
+        digest = hashlib.sha256()
+        try:
+            with file_path.open("rb") as stream:
+                for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+                    digest.update(chunk)
+        except OSError as exc:
+            raise ModelVerificationError(
+                f"Could not read local model file {filename}: {exc}"
+            ) from exc
+        if digest.hexdigest() != expected_hash:
+            raise ModelVerificationError(
+                f"Local model file {filename} does not match the verified pin"
+            )
+    return str(model_path)
+
+
+def pinned_model_cache_status(
+    model_path: str | Path | None = None,
+) -> tuple[bool, str]:
+    """Check local snapshot availability without downloading or loading weights."""
+    try:
+        _verified_snapshot_path(MODEL_REVISION, model_path)
+    except ModelVerificationError as exc:
+        return False, str(exc)
+    return True, ""
 
 
 def _classifier_head_structure(model: Any) -> list[dict[str, Any]]:
@@ -389,7 +383,7 @@ def _classifier_head_structure(model: Any) -> list[dict[str, Any]]:
     return layers
 
 
-def load_model() -> ModelBundle:
+def load_model(model_path: str | Path | None = None) -> ModelBundle:
     """Load and re-verify config, safetensors weights, and feature extractor."""
     if not re.fullmatch(r"[0-9a-f]{40}", MODEL_REVISION):
         raise ModelVerificationError("Model analysis is disabled: configured revision pin is missing or invalid")
@@ -399,13 +393,13 @@ def load_model() -> ModelBundle:
     except Exception as exc:
         raise ModelVerificationError(f"Required model packages could not be imported: {exc}") from exc
 
-    snapshot_path = _verified_snapshot_path(MODEL_REVISION)
-    common = {"revision": MODEL_REVISION, "local_files_only": True, "trust_remote_code": False}
+    snapshot_path = _verified_snapshot_path(MODEL_REVISION, model_path)
+    common = {"local_files_only": True, "trust_remote_code": False}
     try:
-        config = AutoConfig.from_pretrained(MODEL_ID, **common)
-        extractor = AutoFeatureExtractor.from_pretrained(MODEL_ID, **common)
+        config = AutoConfig.from_pretrained(snapshot_path, **common)
+        extractor = AutoFeatureExtractor.from_pretrained(snapshot_path, **common)
         model = AutoModelForAudioClassification.from_pretrained(
-            MODEL_ID,
+            snapshot_path,
             use_safetensors=True,
             **common,
         )
@@ -438,7 +432,14 @@ def load_model() -> ModelBundle:
         raise ModelVerificationError("Feature extractor sampling rate disagrees with configuration")
     if not getattr(config, "_commit_hash", None) and not getattr(model.config, "_commit_hash", None):
         # All objects were loaded by the exact immutable revision from this verified snapshot.
-        if snapshot_path.rstrip("\\/").split("/")[-1].split("\\")[-1].lower() != MODEL_REVISION:
+        local_path_configured = model_path is not None or bool(
+            os.environ.get(MODEL_LOCAL_PATH_ENV, "").strip()
+        )
+        if (
+            not local_path_configured
+            and snapshot_path.rstrip("\\/").split("/")[-1].split("\\")[-1].lower()
+            != MODEL_REVISION
+        ):
             raise ModelVerificationError("Loaded model revision could not be confirmed")
 
     model.eval().to("cpu")
@@ -478,97 +479,3 @@ def load_model() -> ModelBundle:
         sample_rate=MODEL_SAMPLE_RATE,
         verification=verification,
     )
-
-
-def dependency_versions() -> dict[str, str | None]:
-    packages = (
-        "python",
-        "numpy",
-        "soundfile",
-        "soxr",
-        "torch",
-        "transformers",
-        "huggingface-hub",
-        "safetensors",
-        "streamlit",
-        "webrtcvad-wheels",
-    )
-    import sys
-
-    versions = {"python": sys.version.split()[0]}
-    for package in packages[1:]:
-        try:
-            versions[package] = importlib.metadata.version(package)
-        except importlib.metadata.PackageNotFoundError:
-            versions[package] = None
-    return versions
-
-
-def analyze_audio(
-    audio: AudioData,
-    classifier: ModelBundle | Callable[[np.ndarray], Any],
-    *,
-    progress_callback: Callable[[int, int], None] | None = None,
-) -> tuple[list[dict[str, Any]], dict[str, Any], dict[str, Any] | None]:
-    """Screen, classify, and account for every established window independently."""
-    samples = audio.samples
-    bounds = window_bounds(len(samples), audio.sample_rate)
-    windows: list[dict[str, Any]] = []
-    for index, (start_sample, end_sample) in enumerate(bounds):
-        start_seconds = start_sample / audio.sample_rate
-        end_seconds = end_sample / audio.sample_rate
-        segment = samples[start_sample:end_sample]
-        flags, metrics = screen_window(segment)
-        row: dict[str, Any] = {
-            "index": index,
-            "start_seconds": start_seconds,
-            "end_seconds": end_seconds,
-            "status": "pending",
-            "reason": None,
-            "scores": [],
-            "scores_by_label": {},
-            "quality_flags": flags,
-            "metrics": metrics,
-        }
-        segment_duration = (end_sample - start_sample) / audio.sample_rate
-        if segment_duration < MIN_ANALYZABLE_WINDOW_SECONDS:
-            row["status"] = "skipped"
-            row["reason"] = "Window is shorter than the provisional minimum analyzable duration"
-        elif metrics["rms_energy"] <= DIGITAL_SILENCE_RMS_FLOOR:
-            row["status"] = "skipped"
-            row["reason"] = "Effectively digital silence at the provisional RMS floor"
-        else:
-            try:
-                if isinstance(classifier, ModelBundle):
-                    raw_scores = classifier.predict_scores(segment)
-                    labels = classifier.labels
-                    output_dimension = classifier.output_dimension
-                elif hasattr(classifier, "predict_scores"):
-                    raw_scores = classifier.predict_scores(segment)
-                    labels = tuple(EXPECTED_ID2LABEL[index] for index in range(MODEL_OUTPUT_DIMENSION))
-                    output_dimension = MODEL_OUTPUT_DIMENSION
-                else:
-                    raw_scores = classifier(segment)
-                    labels = tuple(EXPECTED_ID2LABEL[index] for index in range(MODEL_OUTPUT_DIMENSION))
-                    output_dimension = MODEL_OUTPUT_DIMENSION
-                scores = validate_score_vector(raw_scores, labels, output_dimension)
-                row["scores"] = scores
-                row["scores_by_label"] = {item["label"]: item["score"] for item in scores}
-                row["status"] = "classified"
-            except Exception as exc:
-                row["status"] = "failed"
-                row["reason"] = f"Window classification or output validation failed: {type(exc).__name__}: {exc}"
-        windows.append(row)
-        if progress_callback is not None:
-            progress_callback(index + 1, len(bounds))
-
-    coverage = coverage_accounting(
-        audio.original_wav_metadata["duration_seconds"],
-        windows,
-    )
-    stats = class_statistics(
-        windows,
-        tuple(EXPECTED_ID2LABEL[index] for index in range(MODEL_OUTPUT_DIMENSION)),
-        coverage["coverage_state"],
-    )
-    return windows, coverage, stats

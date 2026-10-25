@@ -1,274 +1,133 @@
-"""Pure time-coverage, score-statistics, and candidate-ranking helpers."""
+"""Derived voice indicators and attention-level helpers."""
 
 from __future__ import annotations
 
 import math
-from statistics import mean, median
-from typing import Iterable, Mapping, Sequence
+from typing import Mapping, Sequence
 
 from config import (
-    MIN_ADEQUATE_COVERAGE_FRACTION,
-    MIN_INSUFFICIENT_COVERAGE_FRACTION,
-    MIN_SUMMARY_ANALYZED_SECONDS,
+    PROVISIONAL_ATTENTION_THRESHOLDS,
+    PROVISIONAL_INDICATOR_WEIGHTS,
+    LIVE_CATEGORY_CONFIRM_WINDOWS,
+    LIVE_CATEGORY_THRESHOLDS,
 )
 
 
-def merge_intervals(intervals: Iterable[Sequence[float]]) -> list[tuple[float, float]]:
-    """Return the sorted union of finite, positive-length intervals.
+def derive_indicators(
+    scores_by_label: Mapping[str, float],
+    metrics: Mapping[str, float],
+) -> dict[str, float]:
+    """Calculate provisional indicators without adding model classes."""
+    required_labels = {
+        label
+        for weights in PROVISIONAL_INDICATOR_WEIGHTS.values()
+        for label in weights
+        if label != "rms_cv"
+    }
+    if not required_labels.issubset(scores_by_label):
+        missing = sorted(required_labels - set(scores_by_label))
+        raise ValueError(f"Missing raw scores required for derived indicators: {missing}")
 
-    Adjacent intervals are merged. Invalid, non-finite, reversed, or zero-length
-    intervals are rejected so coverage cannot be inflated silently.
-    """
-    normalized: list[tuple[float, float]] = []
-    for interval in intervals:
-        if len(interval) != 2:
-            raise ValueError("Each interval must contain exactly start and end")
-        start, end = float(interval[0]), float(interval[1])
-        if not math.isfinite(start) or not math.isfinite(end):
-            raise ValueError("Interval bounds must be finite")
-        if start < 0 or end <= start:
-            raise ValueError("Intervals must have start >= 0 and end > start")
-        normalized.append((start, end))
+    for label in required_labels:
+        score = float(scores_by_label[label])
+        if not math.isfinite(score) or not 0.0 <= score <= 1.0:
+            raise ValueError(f"Raw score for {label!r} must be finite and within [0, 1]")
 
-    normalized.sort()
-    merged: list[tuple[float, float]] = []
-    for start, end in normalized:
-        if merged and start <= merged[-1][1]:
-            merged[-1] = (merged[-1][0], max(merged[-1][1], end))
-        else:
-            merged.append((start, end))
-    return merged
+    if "rms_cv" not in metrics:
+        raise ValueError("Acoustic metrics must include rms_cv")
+    rms_cv = float(metrics["rms_cv"])
+    if not math.isfinite(rms_cv) or rms_cv < 0.0:
+        raise ValueError("rms_cv must be finite and non-negative")
 
-
-def interval_union_seconds(intervals: Iterable[Sequence[float]]) -> float:
-    return sum(end - start for start, end in merge_intervals(intervals))
-
-
-def coverage_accounting(recording_duration: float, windows: Sequence[Mapping]) -> dict:
-    """Account for classified time using interval unions, never summed overlap."""
-    duration = float(recording_duration)
-    if not math.isfinite(duration) or duration <= 0:
-        raise ValueError("Recording duration must be finite and positive")
-
-    classified = [window for window in windows if window.get("status") == "classified"]
-    flagged = [window for window in classified if window.get("quality_flags")]
-    unflagged = [window for window in classified if not window.get("quality_flags")]
-    skipped = [window for window in windows if window.get("status") == "skipped"]
-    failed = [window for window in windows if window.get("status") == "failed"]
-    completed_statuses = {"classified", "skipped", "failed"}
-    completed = [window for window in windows if window.get("status") in completed_statuses]
-    unprocessed = [window for window in windows if window.get("status") not in completed_statuses]
-
-    def clipped_intervals(items: Sequence[Mapping]) -> list[tuple[float, float]]:
-        intervals = []
-        for item in items:
-            start = max(0.0, min(duration, float(item["start_seconds"])))
-            end = max(0.0, min(duration, float(item["end_seconds"])))
-            if end > start:
-                intervals.append((start, end))
-        return intervals
-
-    classified_seconds = min(duration, interval_union_seconds(clipped_intervals(classified)))
-    unflagged_seconds = min(duration, interval_union_seconds(clipped_intervals(unflagged)))
-    skipped_seconds = min(duration, interval_union_seconds(clipped_intervals(skipped)))
-    failed_seconds = min(duration, interval_union_seconds(clipped_intervals(failed)))
-    completed_seconds = min(duration, interval_union_seconds(clipped_intervals(completed)))
-    analyzed_fraction = min(1.0, classified_seconds / duration)
-
-    if not classified:
-        state = "NO_ANALYZED_AUDIO"
-    elif duration >= MIN_SUMMARY_ANALYZED_SECONDS and (
-        classified_seconds < MIN_SUMMARY_ANALYZED_SECONDS
-        or analyzed_fraction < MIN_INSUFFICIENT_COVERAGE_FRACTION
-    ):
-        state = "INSUFFICIENT_COVERAGE"
-    elif duration < MIN_SUMMARY_ANALYZED_SECONDS:
-        state = (
-            "PARTIAL_COVERAGE"
-            if analyzed_fraction >= MIN_INSUFFICIENT_COVERAGE_FRACTION
-            else "INSUFFICIENT_COVERAGE"
-        )
-    elif (
-        classified_seconds >= MIN_SUMMARY_ANALYZED_SECONDS
-        and analyzed_fraction >= MIN_ADEQUATE_COVERAGE_FRACTION
-    ):
-        state = "ADEQUATE_PROVISIONAL_COVERAGE"
-    else:
-        state = "PARTIAL_COVERAGE"
-
+    distress_weights = PROVISIONAL_INDICATOR_WEIGHTS["distress"]
+    nervousness_weights = PROVISIONAL_INDICATOR_WEIGHTS["nervousness"]
     return {
-        "recording_duration_seconds": duration,
-        "total_windows": len(windows),
-        "successfully_classified_windows": len(classified),
-        "flagged_classified_windows": len(flagged),
-        "unflagged_classified_windows": len(unflagged),
-        "skipped_windows": len(skipped),
-        "failed_windows": len(failed),
-        "unprocessed_windows": len(unprocessed),
-        "classified_all_seconds": classified_seconds,
-        "classified_unflagged_seconds": unflagged_seconds,
-        "skipped_window_interval_union_seconds": skipped_seconds,
-        "failed_window_interval_union_seconds": failed_seconds,
-        "unprocessed_seconds": max(0.0, duration - completed_seconds),
-        "unanalyzed_seconds": max(0.0, duration - classified_seconds),
-        "analyzed_time_fraction": analyzed_fraction,
-        "unflagged_time_fraction": min(1.0, unflagged_seconds / duration),
-        "coverage_state": state,
-        "coverage_thresholds_are_provisional": True,
+        "distress_indicator": sum(
+            weight * float(scores_by_label[label])
+            for label, weight in distress_weights.items()
+        ),
+        "nervousness_indicator": sum(
+            weight * (
+                min(rms_cv, 1.0)
+                if label == "rms_cv"
+                else float(scores_by_label[label])
+            )
+            for label, weight in nervousness_weights.items()
+        ),
+        "fear": float(scores_by_label["fearful"]),
+        "anger": float(scores_by_label["angry"]),
     }
 
 
-def class_statistics(
-    windows: Sequence[Mapping], labels: Sequence[str], coverage_state: str
-) -> dict | None:
-    """Return overlapping-window summaries only with adequate coverage."""
-    if coverage_state != "ADEQUATE_PROVISIONAL_COVERAGE":
-        return None
-
-    successful = [window for window in windows if window.get("status") == "classified"]
-    groups = {
-        "all_classified_windows": successful,
-        "unflagged_classified_windows": [
-            window for window in successful if not window.get("quality_flags")
-        ],
-    }
-    output: dict[str, dict] = {}
-    for group_name, items in groups.items():
-        per_class: dict[str, dict | None] = {}
-        for label in labels:
-            values = [float(window["scores_by_label"][label]) for window in items]
-            per_class[label] = (
-                {
-                    "mean": mean(values),
-                    "median": median(values),
-                    "maximum": max(values),
-                    "window_count": len(values),
-                }
-                if values
-                else None
-            )
-        output[group_name] = per_class
-    return output
+def attention_level(indicator: float) -> str:
+    """Map a provisional indicator to a neutral display category."""
+    value = float(indicator)
+    if not math.isfinite(value) or not 0.0 <= value <= 1.0:
+        raise ValueError("Indicator must be finite and within [0, 1]")
+    if value < PROVISIONAL_ATTENTION_THRESHOLDS["elevated"]:
+        return "Low"
+    if value < PROVISIONAL_ATTENTION_THRESHOLDS["high"]:
+        return "Elevated"
+    return "High"
 
 
-def rank_candidates(
-    windows: Sequence[Mapping],
-    selected_label: str,
-    verified_labels: Sequence[str],
-) -> list[dict]:
-    """Rank successful windows deterministically by a verified raw class.
-
-    ``max(angry, fearful)`` is an optional selector only when both exact raw
-    labels exist. Ties are ordered by earlier start time, then window index.
-    """
-    combined = selected_label == "max(angry, fearful)"
-    if combined and not {"angry", "fearful"}.issubset(set(verified_labels)):
-        raise ValueError("Combined selector requires raw labels angry and fearful")
-    if not combined and selected_label not in verified_labels:
-        raise ValueError(f"Unknown raw model label: {selected_label}")
-
-    candidates = []
-    for window in windows:
-        if window.get("status") != "classified":
-            continue
-        scores = window["scores_by_label"]
-        if combined:
-            chosen_label = max(
-                ("angry", "fearful"), key=lambda label: scores[label]
-            )
-            score = float(scores[chosen_label])
-        else:
-            chosen_label = selected_label
-            score = float(scores[selected_label])
-        candidate = dict(window)
-        candidate["selected_class"] = chosen_label
-        candidate["selected_score"] = score
-        candidates.append(candidate)
-
-    candidates.sort(
-        key=lambda item: (
-            -item["selected_score"],
-            float(item["start_seconds"]),
-            int(item["index"]),
-        )
-    )
-    return candidates
+def smooth_indicator(history: Sequence[float], alpha: float) -> float:
+    """Return the latest exponential moving average from a non-empty history."""
+    smoothing = float(alpha)
+    if not math.isfinite(smoothing) or not 0.0 < smoothing <= 1.0:
+        raise ValueError("alpha must be finite and within (0, 1]")
+    if not history:
+        raise ValueError("history must contain at least one indicator")
+    values = [float(value) for value in history]
+    if any(not math.isfinite(value) or not 0.0 <= value <= 1.0 for value in values):
+        raise ValueError("indicator history values must be finite and within [0, 1]")
+    smoothed = values[0]
+    for value in values[1:]:
+        smoothed = smoothing * value + (1.0 - smoothing) * smoothed
+    return smoothed
 
 
-def review_windows(
-    windows: Sequence[Mapping],
+def categorize_call(
+    smoothed_indicators: Mapping[str, float],
+    flags: Sequence[str],
     *,
-    filter_mode: str,
-    order_by: str,
-    selected_label: str,
-    verified_labels: Sequence[str],
-) -> list[dict]:
-    """Filter and order review rows without changing their source results.
+    previous_category: str | None = None,
+    candidate_history: Sequence[str] = (),
+) -> str:
+    """Categorize provisional indicators with two-window hysteresis."""
+    required = ("distress_indicator", "nervousness_indicator")
+    if any(name not in smoothed_indicators for name in required):
+        raise ValueError("Both smoothed indicators are required")
+    values = [float(smoothed_indicators[name]) for name in required]
+    if any(not math.isfinite(value) or not 0.0 <= value <= 1.0 for value in values):
+        raise ValueError("Smoothed indicators must be finite and within [0, 1]")
 
-    Flagged includes any window carrying a quality flag. Unflagged is limited
-    to classified windows with no flags, since skipped or failed windows do
-    not have a valid unflagged prediction.
-    """
-    if filter_mode == "all":
-        filtered = list(windows)
-    elif filter_mode in {"flagged", "flagged_classified"}:
-        filtered = [
-            window
-            for window in windows
-            if window.get("status") == "classified" and window.get("quality_flags")
-        ]
-    elif filter_mode == "unflagged":
-        filtered = [
-            window
-            for window in windows
-            if window.get("status") == "classified"
-            and not window.get("quality_flags")
-        ]
-    elif filter_mode == "skipped_failed":
-        filtered = [
-            window
-            for window in windows
-            if window.get("status") in {"skipped", "failed"}
-        ]
+    peak = max(values)
+    if peak >= LIVE_CATEGORY_THRESHOLDS["high"]:
+        candidate = "High"
+    elif peak >= LIVE_CATEGORY_THRESHOLDS["elevated"]:
+        candidate = "Elevated"
     else:
-        raise ValueError(f"Unknown review filter: {filter_mode}")
-
-    ranked = rank_candidates(filtered, selected_label, verified_labels)
-    ranked_by_index = {int(window["index"]): window for window in ranked}
-
-    if order_by == "timestamp":
-        ordered = sorted(
-            filtered,
-            key=lambda window: (
-                float(window["start_seconds"]),
-                int(window["index"]),
-            ),
-        )
-    elif order_by == "raw_score":
-        unscored = [
-            window
-            for window in filtered
-            if window.get("status") != "classified"
-        ]
-        ordered = ranked + sorted(
-            unscored,
-            key=lambda window: (
-                float(window["start_seconds"]),
-                int(window["index"]),
-            ),
-        )
-    else:
-        raise ValueError(f"Unknown review order: {order_by}")
-
-    return [
-        ranked_by_index.get(int(window["index"]), dict(window))
-        for window in ordered
-    ]
+        candidate = "Routine"
+    if previous_category not in {"Routine", "Elevated", "High"}:
+        return candidate
+    if candidate == previous_category:
+        return previous_category
+    if len(candidate_history) < LIVE_CATEGORY_CONFIRM_WINDOWS - 1:
+        return previous_category
+    recent = [*candidate_history, candidate][-LIVE_CATEGORY_CONFIRM_WINDOWS:]
+    return candidate if all(item == candidate for item in recent) else previous_category
 
 
-def select_review_window(windows: Sequence[Mapping], index: int) -> dict:
-    """Return a copy of the uniquely indexed window selected in the UI."""
-    matches = [window for window in windows if int(window["index"]) == int(index)]
-    if len(matches) != 1:
-        raise ValueError(f"Expected one review window for index {index}")
-    return dict(matches[0])
+
+
+
+
+
+
+
+
+
+
+
+

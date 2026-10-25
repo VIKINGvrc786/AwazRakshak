@@ -1,17 +1,9 @@
-# Tested with Python 3.12.10 on Windows in the current project environment.
+# Python 3.12; CPU-only, local inference
 streamlit==1.66.1
+streamlit-webrtc==0.63.11
 numpy==2.5.4
-pandas==3.1.0
-soundfile==0.14.0
-soxr==1.1.0
 torch==2.14.1
 transformers==5.20.2
-huggingface-hub==2.3.0
-safetensors==0.8.0
-
-# Optional quality flag: if absent, usable audio is still classified and
-# windows receive VAD_UNAVAILABLE.
+soxr==1.1.0
 webrtcvad-wheels==2.0.14.post1
-
-# Acceptance tests; model integration tests are separately marked.
 pytest==8.4.2
