@@ -4,11 +4,6 @@ __pycache__/
 *.py[cod]
 .env
 .streamlit/secrets.toml
-*.wav
-*.mp3
-*.flac
-*.m4a
-*.mp4
 *.pt
 *.pth
 *.safetensors
@@ -22,7 +17,5 @@ __pycache__/
 models/
 model_cache/
 huggingface_cache/
-voxtrace_analysis_receipt*.json
-voxtrace-prebuild-checkpoint-*.zip
-voxtrace-verified-checkpoint-*.zip
+.awazrakshak-data/
 .DS_Store

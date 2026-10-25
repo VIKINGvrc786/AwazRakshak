@@ -1,19 +1,20 @@
 {
   "schema_version": "1.0",
-  "verification_timestamp_utc": "2026-10-24T15:47:55.955059+00:00",
+  "verification_timestamp_utc": "2026-10-25T05:00:44.483361+00:00",
   "status": "verified",
   "model_loaded": true,
   "human_approved": false,
   "model_id": "Dpngtm/wav2vec2-emotion-recognition",
   "requested_pinned_revision": "033a5751a5bbe5b0b67c2c71e6102c38de35a346",
   "current_available_revision": "033a5751a5bbe5b0b67c2c71e6102c38de35a346",
-  "current_revision_lookup_error": null,
+  "current_revision_lookup_error": "network lookups disabled; cached artifacts are checked against the configured SHA",
   "cache": {
     "cache_repo_found": true,
     "snapshot_revisions": [
       "033a5751a5bbe5b0b67c2c71e6102c38de35a346"
     ],
-    "configured_revision_present": true
+    "configured_revision_present": true,
+    "local_model_path_configured": true
   },
   "environment": {
     "python": "3.12.10",
@@ -22,7 +23,7 @@
       "numpy": "2.5.4",
       "soundfile": "0.14.0",
       "soxr": "1.1.0",
-      "torch": "2.14.1+cpu",
+      "torch": "2.14.1",
       "transformers": "5.20.2",
       "huggingface-hub": "2.3.0",
       "safetensors": "0.8.0",
@@ -33,12 +34,13 @@
   "resolved_revision": "033a5751a5bbe5b0b67c2c71e6102c38de35a346",
   "loaded_revision": "033a5751a5bbe5b0b67c2c71e6102c38de35a346",
   "revision_confirmation": {
-    "snapshot_directory_name": "033a5751a5bbe5b0b67c2c71e6102c38de35a346",
+    "snapshot_directory_name": "Models",
     "config_commit_hash": null,
     "model_commit_hash": null,
     "feature_extractor_commit_hash": null,
-    "snapshot_directory_matches_requested_revision": true,
-    "online_current_revision_matches_pin": true
+    "snapshot_directory_matches_requested_revision": false,
+    "local_directory_hashes_match_verified_manifest": true,
+    "online_current_revision_matches_pin": null
   },
   "config": {
     "id2label": {
@@ -106,15 +108,15 @@
     "logits_finite": true,
     "all_class_scores_validated": true,
     "scores_by_label": {
-      "angry": 0.00011637695570243523,
-      "calm": 0.017108900472521782,
-      "disgust": 0.0029909873846918344,
-      "fearful": 0.018428953364491463,
+      "angry": 0.00011637707211775705,
+      "calm": 0.01710888370871544,
+      "disgust": 0.002990990411490202,
+      "fearful": 0.01842895708978176,
       "happy": 0.00022202768013812602,
       "sad": 0.9603046774864197,
-      "surprised": 0.0008280881447717547
+      "surprised": 0.0008280885522253811
     },
-    "score_sum": 1.000000011488737
+    "score_sum": 1.0000000020008883
   },
   "artifacts": {
     "config_json_sha256": "219fe4ea30d255c4fa0de7070b3f0c6f1277f741a492594f589d046951e9635f",
