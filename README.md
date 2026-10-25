@@ -1,10 +1,10 @@
-# VoxTrace
+# AwazRakshak
 
-VoxTrace is an experimental, local investigator-support prototype for reviewing selected portions of recorded WAV audio alongside raw outputs from a pinned Wav2Vec2 emotion-classification model.
+AwazRakshak (formerly VoxTrace) is an experimental, local investigator-support prototype for reviewing selected portions of recorded WAV audio alongside raw outputs from a pinned Wav2Vec2 emotion-classification model.
 
-> **Important:** VoxTrace is a review and screening aid, not a lie detector, emergency detector, clinical tool, or automated decision system. Model scores are uncalibrated outputs and must not be interpreted as proof that a person is experiencing an emotion or that an audio recording indicates danger, deception, guilt, fraud, malicious intent, or urgency.
+> **Important:** AwazRakshak is a review and screening aid, not a lie detector, emergency detector, clinical tool, or automated decision system. Model scores are uncalibrated outputs and must not be interpreted as proof that a person is experiencing an emotion or that an audio recording indicates danger, deception, guilt, fraud, malicious intent, or urgency.
 
-## What VoxTrace does
+## What AwazRakshak does
 
 - Loads and reviews WAV recordings locally.
 - Splits usable audio into overlapping analysis windows.
@@ -17,7 +17,7 @@ VoxTrace is an experimental, local investigator-support prototype for reviewing 
 - Generates a versioned JSON evidence receipt containing metadata, transformations, model identity, scores, flags, coverage, thresholds, and dependency information.
 - Keeps uploaded audio out of Git by default.
 
-## What VoxTrace does NOT do
+## What AwazRakshak does NOT do
 
 The pinned checkpoint exposes these raw classes:
 
@@ -31,11 +31,11 @@ The pinned checkpoint exposes these raw classes:
 | 5 | `sad` |
 | 6 | `surprised` |
 
-VoxTrace does not independently detect `nervousness` or `distress`, and it does not synthesize either label. In particular, `calm` is not renamed to `neutral`.
+AwazRakshak does not independently detect `nervousness` or `distress`, and it does not synthesize either label. In particular, `calm` is not renamed to `neutral`.
 
 The classifier can produce scores for noise, music, silence-like inputs, tones, and unrelated audio. A high score on non-speech audio does not establish that an emotion is present. Low or missing scores do not establish safety or calm.
 
-VoxTrace must not be used to trigger emergency dispatch, operational triage, disciplinary action, medical decisions, or other high-impact decisions without independent human review and appropriate validation.
+AwazRakshak must not be used to trigger emergency dispatch, operational triage, disciplinary action, medical decisions, or other high-impact decisions without independent human review and appropriate validation.
 
 ## Architecture at a glance
 
@@ -77,7 +77,7 @@ The project is tested with:
 - Python 3.12 (the current tested environment used Python 3.12.10)
 - The pinned dependency versions in [`requirements.txt`](requirements.txt)
 
-The main dependencies include Streamlit, NumPy, pandas, SoundFile, soxr, PyTorch, Transformers, Hugging Face Hub, safetensors, and pytest. `webrtcvad-wheels` is optional for quality-flagging support; usable audio can still be classified if VAD is unavailable. fileciteturn2file0
+The main dependencies include Streamlit, NumPy, pandas, SoundFile, soxr, PyTorch, Transformers, Hugging Face Hub, safetensors, and pytest. `webrtcvad-wheels` is optional for quality-flagging support; usable audio can still be classified if VAD is unavailable.
 
 ## Quick start — Windows
 
@@ -97,7 +97,7 @@ Verify the exact model pin before starting the application:
 .\.venv\Scripts\python.exe scripts\verify_model.py
 ```
 
-Start VoxTrace:
+Start AwazRakshak:
 
 ```powershell
 .\.venv\Scripts\streamlit.exe run app.py
@@ -207,7 +207,7 @@ The values are defined in `config.py` and included in each receipt. Quality flag
 
 ## Evidence receipts
 
-VoxTrace produces a strict JSON receipt, currently version 3.1.
+AwazRakshak produces a strict JSON receipt, currently version 3.1.
 
 The receipt records:
 
@@ -248,7 +248,7 @@ Passing synthetic tests does not establish real-world emotion-classification acc
 
 ## Five-minute demo
 
-1. **Scope:** Explain that VoxTrace does not determine danger, deception, guilt, distress, urgency, or dispatch decisions.
+1. **Scope:** Explain that AwazRakshak does not determine danger, deception, guilt, distress, urgency, or dispatch decisions.
 2. **Verification:** Show the immutable checkpoint revision, verification result, seven raw labels, and 16 kHz requirement.
 3. **Consented recording:** Use a short team-recorded WAV for which all speakers have consented. State that the example is anecdotal and is not a benchmark.
 4. **Review:** Inspect metadata, coverage, raw scores, quality flags, and playback.
@@ -288,7 +288,7 @@ Run the normal verifier once with network access so the exact pinned model files
 
 **VAD is unavailable**
 
-This is non-fatal. VoxTrace can continue classifying usable audio and records the `VAD_UNAVAILABLE` condition.
+This is non-fatal. AwazRakshak can continue classifying usable audio and records the `VAD_UNAVAILABLE` condition.
 
 **A recording receives a surprising emotion score**
 
@@ -311,9 +311,11 @@ VoxTrace/
     └── ...
 ```
 
+> **Repository name:** The GitHub repository is currently still named `VoxTrace`. The application/project name is now **AwazRakshak**. Rename the GitHub repository separately if you want the URL/slug to match.
+
 ## Licensing
 
-The VoxTrace source code is released under the MIT License. See [`LICENSE`](LICENSE).
+The AwazRakshak source code is released under the MIT License. See [`LICENSE`](LICENSE).
 
 Third-party model, base-model, and training-dataset terms are tracked separately in [`LICENSES.md`](LICENSES.md). The checkpoint repository currently states MIT metadata, while the underlying training datasets have different terms, including noncommercial and organization-specific restrictions. Therefore, the MIT license for this source repository should not be interpreted as granting unrestricted rights to the third-party checkpoint, training data, or demo recordings.
 
@@ -321,13 +323,13 @@ Before public redistribution of model weights or commercial deployment, review t
 
 ## Privacy and data handling
 
-VoxTrace is designed for local review. Uploaded recordings are processed by the local application/model rather than being sent to a cloud inference endpoint. The application records a SHA-256 fingerprint and metadata in its evidence receipt; a receipt may therefore contain information that can identify or correlate with an input file.
+AwazRakshak is designed for local review. Uploaded recordings are processed by the local application/model rather than being sent to a cloud inference endpoint. The application records a SHA-256 fingerprint and metadata in its evidence receipt; a receipt may therefore contain information that can identify or correlate with an input file.
 
 Do not upload recordings containing sensitive personal information unless you have an appropriate legal basis and consent to process them.
 
 ## Status
 
-VoxTrace is an experimental research/prototype project. Its model outputs and screening heuristics should be treated as investigative aids requiring human review, not as validated evidence or production-grade emotion measurement.
+AwazRakshak is an experimental research/prototype project. Its model outputs and screening heuristics should be treated as investigative aids requiring human review, not as validated evidence or production-grade emotion measurement.
 
 ## Contributing
 
@@ -342,6 +344,6 @@ Please avoid committing:
 
 ## License and third-party notices
 
-- **VoxTrace source:** MIT License — see [`LICENSE`](LICENSE).
+- **AwazRakshak source:** MIT License — see [`LICENSE`](LICENSE).
 - **Third-party model/dataset review:** see [`LICENSES.md`](LICENSES.md).
 - **Model provenance and licensing status:** see [`LICENSES.md`](LICENSES.md) before redistribution.
