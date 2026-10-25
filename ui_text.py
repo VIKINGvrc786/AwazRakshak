@@ -29,7 +29,7 @@ def summarize_top_outputs(scores: list[dict]) -> tuple[dict, dict | None, tuple[
     return top, runner_up, tied_labels
 
 SCOPE_BANNER = (
-    "Experimental investigator-support prototype. VoxTrace displays raw "
+    "Experimental investigator-support prototype. AwazRakshak displays raw "
     "outputs from a closed-set speech-emotion classifier for human review. "
     "It does not determine danger, urgency, deception, guilt, fraud, intent, "
     "or mental-health status, and it must not be used for dispatch or operational triage."
